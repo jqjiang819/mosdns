@@ -36,6 +36,7 @@ type Args struct {
 	Exps       []string `yaml:"exps"`
 	DomainSets []string `yaml:"domain_sets"`
 	Files      []string `yaml:"files"`
+	Urls       []string `yaml:"urls"`
 }
 
 type MatchFunc func(qCtx *query_context.Context, m domain.Matcher[struct{}]) (bool, error)
@@ -66,9 +67,9 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 	}
 
 	// Anonymous set from plugin's args and files.
-	if len(args.Exps)+len(args.Files) > 0 {
+	if len(args.Exps)+len(args.Files)+len(args.Urls) > 0 {
 		anonymousSet := domain.NewDomainMixMatcher()
-		if err := domain_set.LoadExpsAndFiles(args.Exps, args.Files, anonymousSet); err != nil {
+		if err := domain_set.LoadFromMultipleSources(args.Exps, args.Files, args.Urls, anonymousSet); err != nil {
 			return nil, err
 		}
 		if anonymousSet.Len() > 0 {

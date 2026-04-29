@@ -25,6 +25,8 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/domain"
 	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
+	"io"
+	"net/http"
 	"os"
 )
 
@@ -46,6 +48,7 @@ type Args struct {
 	Exps  []string `yaml:"exps"`
 	Sets  []string `yaml:"sets"`
 	Files []string `yaml:"files"`
+	Urls  []string `yaml:"urls"`
 }
 
 var _ data_provider.DomainMatcherProvider = (*DomainSet)(nil)
@@ -63,7 +66,7 @@ func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
 	ds := &DomainSet{}
 
 	m := domain.NewDomainMixMatcher()
-	if err := LoadExpsAndFiles(args.Exps, args.Files, m); err != nil {
+	if err := LoadFromMultipleSources(args.Exps, args.Files, args.Urls, m); err != nil {
 		return nil, err
 	}
 	if m.Len() > 0 {
@@ -81,14 +84,42 @@ func NewDomainSet(bp *coremain.BP, args *Args) (*DomainSet, error) {
 	return ds, nil
 }
 
-func LoadExpsAndFiles(exps []string, fs []string, m *domain.MixMatcher[struct{}]) error {
+func LoadFromMultipleSources(exps []string, fs []string, urls []string, m *domain.MixMatcher[struct{}]) error {
 	if err := LoadExps(exps, m); err != nil {
 		return err
 	}
 	if err := LoadFiles(fs, m); err != nil {
 		return err
 	}
+	if err := LoadFromURLs(urls, m); err != nil {
+		return err
+	}
 	return nil
+}
+
+func LoadFromURLs(urls []string, m *domain.MixMatcher[struct{}]) error {
+	for i, u := range urls {
+		if err := LoadFromURL(u, m); err != nil {
+			return fmt.Errorf("failed to load url #%d %s, %w", i, u, err)
+		}
+	}
+	return nil
+}
+
+func LoadFromURL(u string, m *domain.MixMatcher[struct{}]) error {
+	resp, err := http.Get(u)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected http status %s", resp.Status)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return domain.LoadFromTextReader[struct{}](m, bytes.NewReader(b), nil)
 }
 
 func LoadExps(exps []string, m *domain.MixMatcher[struct{}]) error {

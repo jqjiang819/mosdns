@@ -25,6 +25,8 @@ import (
 	"github.com/IrineSistiana/mosdns/v5/coremain"
 	"github.com/IrineSistiana/mosdns/v5/pkg/matcher/netlist"
 	"github.com/IrineSistiana/mosdns/v5/plugin/data_provider"
+	"io"
+	"net/http"
 	"net/netip"
 	"os"
 	"strings"
@@ -44,6 +46,7 @@ type Args struct {
 	IPs   []string `yaml:"ips"`
 	Sets  []string `yaml:"sets"`
 	Files []string `yaml:"files"`
+	Urls  []string `yaml:"urls"`
 }
 
 var _ data_provider.IPMatcherProvider = (*IPSet)(nil)
@@ -60,7 +63,7 @@ func NewIPSet(bp *coremain.BP, args *Args) (*IPSet, error) {
 	p := &IPSet{}
 
 	l := netlist.NewList()
-	if err := LoadFromIPsAndFiles(args.IPs, args.Files, l); err != nil {
+	if err := LoadFromMultipleSources(args.IPs, args.Files, args.Urls, l); err != nil {
 		return nil, err
 	}
 	l.Sort()
@@ -88,11 +91,14 @@ func parseNetipPrefix(s string) (netip.Prefix, error) {
 	return addr.Prefix(addr.BitLen())
 }
 
-func LoadFromIPsAndFiles(ips []string, fs []string, l *netlist.List) error {
+func LoadFromMultipleSources(ips []string, fs []string, urls []string, l *netlist.List) error {
 	if err := LoadFromIPs(ips, l); err != nil {
 		return err
 	}
 	if err := LoadFromFiles(fs, l); err != nil {
+		return err
+	}
+	if err := LoadFromURLs(urls, l); err != nil {
 		return err
 	}
 	return nil
@@ -116,6 +122,31 @@ func LoadFromFiles(fs []string, l *netlist.List) error {
 		}
 	}
 	return nil
+}
+
+func LoadFromURLs(urls []string, l *netlist.List) error {
+	for i, u := range urls {
+		if err := LoadFromURL(u, l); err != nil {
+			return fmt.Errorf("failed to load url #%d %s, %w", i, u, err)
+		}
+	}
+	return nil
+}
+
+func LoadFromURL(u string, l *netlist.List) error {
+	resp, err := http.Get(u)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected http status %s", resp.Status)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return netlist.LoadFromReader(l, bytes.NewReader(b))
 }
 
 func LoadFromFile(f string, l *netlist.List) error {

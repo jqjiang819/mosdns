@@ -36,6 +36,7 @@ type Args struct {
 	IPs    []string `yaml:"ips"`
 	IPSets []string `yaml:"ip_sets"`
 	Files  []string `yaml:"files"`
+	Urls   []string `yaml:"urls"`
 }
 
 type MatchFunc func(qCtx *query_context.Context, m netlist.Matcher) (bool, error)
@@ -67,9 +68,9 @@ func NewMatcher(bq sequence.BQ, args *Args, f MatchFunc) (m *Matcher, err error)
 	}
 
 	// Anonymous set from plugin's args and files.
-	if len(args.IPs)+len(args.Files) > 0 {
+	if len(args.IPs)+len(args.Files)+len(args.Urls) > 0 {
 		anonymousList := netlist.NewList()
-		if err := ip_set.LoadFromIPsAndFiles(args.IPs, args.Files, anonymousList); err != nil {
+		if err := ip_set.LoadFromMultipleSources(args.IPs, args.Files, args.Urls, anonymousList); err != nil {
 			return nil, err
 		}
 		anonymousList.Sort()
